@@ -63,6 +63,25 @@ in [Clean up](#clean-up).
 The fastest way to run this is [AWS CloudShell](https://aws.amazon.com/cloudshell/),
 which comes with every prerequisite except the desktop agent already installed.
 
+**Choosing the AWS Region.** Everything deploys into the Region of your AWS CLI
+configuration, and nothing in the templates is tied to a particular Region. Open
+CloudShell in the Region you want, then check it:
+
+```bash
+aws configure list | grep region
+```
+
+If it is empty or wrong, set it with `aws configure set region <region>`. Do not
+also set the `AWS_REGION` or `AWS_DEFAULT_REGION` environment variable to a
+different Region. The AWS CLI would then deploy to that Region, while `deploy.sh`
+writes the Region from the configuration file into the IAM policy and the MCP
+configuration, and the agent cannot reach your tools.
+
+The IAM user `paymaster-mcp-user` and its policy are global, so they exist once
+per account. Deploy into one Region at a time: a second deployment in another
+Region replaces the first one's policy and access key, and `./deploy.sh destroy`
+in either Region deletes them.
+
 ## Quick start
 
 ```bash
