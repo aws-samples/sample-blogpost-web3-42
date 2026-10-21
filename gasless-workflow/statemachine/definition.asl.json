@@ -1,0 +1,43 @@
+{
+  "QueryLanguage": "JSONata",
+  "Comment": "A gasless USDC transfer workflow using Circle Paymaster and EIP-7702",
+  "StartAt": "ValidateAndCheck",
+  "States": {
+    "ValidateAndCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${ValidateAndCheckFunctionArn}",
+        "Payload": "{% $states.input %}"
+      },
+      "Next": "PrepareSponsorship"
+    },
+    "PrepareSponsorship": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${PrepareSponsorshipFunctionArn}",
+        "Payload": "{% $states.input.Payload %}"
+      },
+      "Next": "PrepareUserOp"
+    },
+    "PrepareUserOp": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${PrepareUserOpFunctionArn}",
+        "Payload": "{% $states.input.Payload %}"
+      },
+      "Next": "SubmitUserOp"
+    },
+    "SubmitUserOp": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "${SubmitUserOpFunctionArn}",
+        "Payload": "{% $states.input.Payload %}"
+      },
+      "End": true
+    }
+  }
+}

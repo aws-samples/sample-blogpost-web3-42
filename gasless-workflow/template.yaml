@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Gasless USDC Workflow with Step Functions and Circle Paymaster
+
+Resources:
+  # IAM Policy for Secrets Manager access
+  SecretsManagerAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:paymaster-key-*'
+
+  # Environment Variables Mapping
+  # (In a real scenario, these could be Parameters)
+
+  ValidateAndCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - !Ref SecretsManagerAccessPolicy
+      Environment:
+        Variables:
+          # Private keys — blank in production; populated via env.json for local testing.
+          # In production, config.mjs falls through to Secrets Manager (paymaster-key-*).
+          OWNER_PRIVATE_KEY: ''
+          RECIPIENT_PRIVATE_KEY: ''
+          ETH_USDC_ADDRESS: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          ETH_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          BASE_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ARB_USDC_ADDRESS: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+          ARB_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+    Metadata:
+      BuildMethod: makefile
+
+  PrepareSponsorshipFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - !Ref SecretsManagerAccessPolicy
+      Environment:
+        Variables:
+          OWNER_PRIVATE_KEY: ''
+          RECIPIENT_PRIVATE_KEY: ''
+          ETH_USDC_ADDRESS: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          ETH_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          BASE_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ARB_USDC_ADDRESS: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+          ARB_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+    Metadata:
+      BuildMethod: makefile
+
+  PrepareUserOpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - !Ref SecretsManagerAccessPolicy
+      Environment:
+        Variables:
+          OWNER_PRIVATE_KEY: ''
+          RECIPIENT_PRIVATE_KEY: ''
+          ETH_USDC_ADDRESS: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          ETH_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          BASE_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ARB_USDC_ADDRESS: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+          ARB_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+    Metadata:
+      BuildMethod: makefile
+
+  SubmitUserOpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 120
+      MemorySize: 512
+      Policies:
+        - !Ref SecretsManagerAccessPolicy
+      Environment:
+        Variables:
+          OWNER_PRIVATE_KEY: ''
+          RECIPIENT_PRIVATE_KEY: ''
+          ETH_USDC_ADDRESS: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          ETH_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          BASE_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ARB_USDC_ADDRESS: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+          ARB_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+    Metadata:
+      BuildMethod: makefile
+
+  GaslessWorkflowStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/definition.asl.json
+      DefinitionSubstitutions:
+        ValidateAndCheckFunctionArn: !GetAtt ValidateAndCheckFunction.Arn
+        PrepareSponsorshipFunctionArn: !GetAtt PrepareSponsorshipFunction.Arn
+        PrepareUserOpFunctionArn: !GetAtt PrepareUserOpFunction.Arn
+        SubmitUserOpFunctionArn: !GetAtt SubmitUserOpFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ValidateAndCheckFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PrepareSponsorshipFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PrepareUserOpFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SubmitUserOpFunction
+
+Outputs:
+  StateMachineArn:
+    Description: "Gasless Workflow State Machine ARN"
+    Value: !Ref GaslessWorkflowStateMachine

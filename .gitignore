@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# AWS SAM build artifacts
+.aws-sam/
+**/.aws-sam/
+
+# Secrets and generated environment files — never commit these
+.env
+**/.env
+*.env.local
+
+# Rendered IAM policy (contains your account ID)
+agent-tools/paymaster-mcp-policy.json
+
+# AWS profile with the MCP server access key, written by deploy.sh harden
+*.credentials
+
+# Local test inputs generated from .env. These env.json files contain private keys.
+# (agent-tools/local-test/env.json holds no keys and is shipped.)
+gasless-workflow/local-test/env.json
+cctp-bridge/local-test/env.json
+gasless-workflow/local-test/test-event.json
+
+# Backup files created by update-mcp-config.sh
+*.bak
+
+# Temporary helper written by deploy.sh
+.balance-check.mjs
+**/.balance-check.mjs
+
+# Local workflow state
+state.json
+state.json.backup
+
+# OS files
+.DS_Store
+**/.DS_Store
+Thumbs.db

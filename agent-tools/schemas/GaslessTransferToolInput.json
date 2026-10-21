@@ -1,0 +1,33 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "title": "GaslessTransferToolInput",
+    "description": "Send USDC gaslessly on a single EVM chain. Amount is in human-readable USDC (not base units).",
+    "type": "object",
+    "required": [
+        "chainKey",
+        "amountUsdc",
+        "recipientAddress"
+    ],
+    "properties": {
+        "chainKey": {
+            "type": "string",
+            "enum": [
+                "eth",
+                "base",
+                "arb"
+            ],
+            "description": "Target chain: eth=Ethereum Sepolia, base=Base Sepolia, arb=Arbitrum Sepolia"
+        },
+        "amountUsdc": {
+            "type": "number",
+            "minimum": 0.000001,
+            "maximum": 100,
+            "description": "Amount in USDC (e.g. 1.0 for 1 USDC, 0.5 for 50 cents USDC). Maximum 100 USDC."
+        },
+        "recipientAddress": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$",
+            "description": "Recipient EVM address (0x-prefixed, 42 characters)"
+        }
+    }
+}

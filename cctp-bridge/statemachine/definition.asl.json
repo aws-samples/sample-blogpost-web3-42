@@ -1,0 +1,284 @@
+{
+    "QueryLanguage": "JSONata",
+    "Comment": "CCTP Bridge workflow: gasless cross-chain USDC transfer using Circle CCTP V2 and Paymaster. Invokes the gasless workflow state machine twice (source chain then destination chain) using an async fire-and-poll pattern to avoid the EventBridge managed-rule IAM requirement of .sync:2.",
+    "StartAt": "ValidateBridgeRequest",
+    "States": {
+        "ValidateBridgeRequest": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+                "FunctionName": "${ValidateBridgeRequestFunctionArn}",
+                "Payload": "{% $states.input %}"
+            },
+            "Next": "PrepareBridgeCalls"
+        },
+        "PrepareBridgeCalls": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+                "FunctionName": "${PrepareBridgeCallsFunctionArn}",
+                "Payload": "{% $states.input.Payload %}"
+            },
+            "Next": "StartSourceExecution"
+        },
+        "StartSourceExecution": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::states:startExecution",
+            "Arguments": {
+                "StateMachineArn": "${GaslessWorkflowStateMachineArn}",
+                "Input": "{% $string({ 'chainKey': $states.input.Payload.sourceChainKey, 'userKey': 'owner', 'calls': $states.input.Payload.calls }) %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.Payload.sourceChainKey %}",
+                "destChainKey": "{% $states.input.Payload.destChainKey %}",
+                "sourceDomain": "{% $states.input.Payload.sourceDomain %}",
+                "targetDomain": "{% $states.input.Payload.targetDomain %}",
+                "bridgeAmount": "{% $states.input.Payload.bridgeAmount %}",
+                "ownerAddress": "{% $states.input.Payload.ownerAddress %}",
+                "recipientAddress": "{% $states.input.Payload.recipientAddress %}",
+                "irisFee": "{% $states.input.Payload.irisFee %}",
+                "maxFee": "{% $states.input.Payload.maxFee %}",
+                "totalUsdcNeeded": "{% $states.input.Payload.totalUsdcNeeded %}",
+                "sourceExecutionArn": "{% $states.result.ExecutionArn %}"
+            },
+            "Next": "WaitSourceExecution"
+        },
+        "WaitSourceExecution": {
+            "Type": "Wait",
+            "Seconds": 10,
+            "Next": "PollSourceExecution"
+        },
+        "PollSourceExecution": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:describeExecution",
+            "Arguments": {
+                "ExecutionArn": "{% $states.input.sourceExecutionArn %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.sourceChainKey %}",
+                "destChainKey": "{% $states.input.destChainKey %}",
+                "sourceDomain": "{% $states.input.sourceDomain %}",
+                "targetDomain": "{% $states.input.targetDomain %}",
+                "bridgeAmount": "{% $states.input.bridgeAmount %}",
+                "ownerAddress": "{% $states.input.ownerAddress %}",
+                "recipientAddress": "{% $states.input.recipientAddress %}",
+                "irisFee": "{% $states.input.irisFee %}",
+                "maxFee": "{% $states.input.maxFee %}",
+                "totalUsdcNeeded": "{% $states.input.totalUsdcNeeded %}",
+                "sourceExecutionArn": "{% $states.input.sourceExecutionArn %}",
+                "sourceExecutionStatus": "{% $states.result.Status %}"
+            },
+            "Next": "IsSourceExecutionDone"
+        },
+        "IsSourceExecutionDone": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Condition": "{% $states.input.sourceExecutionStatus = 'SUCCEEDED' %}",
+                    "Next": "GetSourceOutput"
+                },
+                {
+                    "Condition": "{% $states.input.sourceExecutionStatus = 'FAILED' or $states.input.sourceExecutionStatus = 'TIMED_OUT' or $states.input.sourceExecutionStatus = 'ABORTED' %}",
+                    "Next": "SourceExecutionFailed"
+                }
+            ],
+            "Default": "WaitSourceExecution"
+        },
+        "SourceExecutionFailed": {
+            "Type": "Fail",
+            "Error": "SourceExecutionFailed",
+            "Cause": "the gasless workflow source-chain execution did not succeed."
+        },
+        "GetSourceOutput": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:describeExecution",
+            "Arguments": {
+                "ExecutionArn": "{% $states.input.sourceExecutionArn %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.sourceChainKey %}",
+                "destChainKey": "{% $states.input.destChainKey %}",
+                "sourceDomain": "{% $states.input.sourceDomain %}",
+                "targetDomain": "{% $states.input.targetDomain %}",
+                "bridgeAmount": "{% $states.input.bridgeAmount %}",
+                "ownerAddress": "{% $states.input.ownerAddress %}",
+                "recipientAddress": "{% $states.input.recipientAddress %}",
+                "irisFee": "{% $states.input.irisFee %}",
+                "maxFee": "{% $states.input.maxFee %}",
+                "totalUsdcNeeded": "{% $states.input.totalUsdcNeeded %}",
+                "sourceExecutionArn": "{% $states.input.sourceExecutionArn %}",
+                "sourceTxHash": "{% $parse($states.result.Output).Payload.transactionHash %}",
+                "sourceExplorerUrl": "{% $parse($states.result.Output).Payload.explorerUrl %}",
+                "attestationStartedAt": "{% $now() %}",
+                "attestationAttempts": 0
+            },
+            "Next": "GetAttestation"
+        },
+        "GetAttestation": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+                "FunctionName": "${GetAttestationFunctionArn}",
+                "Payload": "{% $states.input %}"
+            },
+            "Next": "IsAttestationReady"
+        },
+        "IsAttestationReady": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Condition": "{% $states.input.Payload.attestationReady = true %}",
+                    "Next": "PrepareReceiveCall"
+                },
+                {
+                    "Condition": "{% $states.input.Payload.attestationAttempts >= 60 %}",
+                    "Next": "TimeoutFail"
+                }
+            ],
+            "Default": "WaitForAttestation"
+        },
+        "WaitForAttestation": {
+            "Type": "Wait",
+            "Seconds": 5,
+            "Next": "IncrementAttempt"
+        },
+        "IncrementAttempt": {
+            "Type": "Pass",
+            "Output": {
+                "sourceChainKey": "{% $states.input.Payload.sourceChainKey %}",
+                "destChainKey": "{% $states.input.Payload.destChainKey %}",
+                "sourceDomain": "{% $states.input.Payload.sourceDomain %}",
+                "targetDomain": "{% $states.input.Payload.targetDomain %}",
+                "bridgeAmount": "{% $states.input.Payload.bridgeAmount %}",
+                "ownerAddress": "{% $states.input.Payload.ownerAddress %}",
+                "recipientAddress": "{% $states.input.Payload.recipientAddress %}",
+                "irisFee": "{% $states.input.Payload.irisFee %}",
+                "maxFee": "{% $states.input.Payload.maxFee %}",
+                "totalUsdcNeeded": "{% $states.input.Payload.totalUsdcNeeded %}",
+                "sourceTxHash": "{% $states.input.Payload.sourceTxHash %}",
+                "sourceExplorerUrl": "{% $states.input.Payload.sourceExplorerUrl %}",
+                "attestationStartedAt": "{% $states.input.Payload.attestationStartedAt %}",
+                "attestationAttempts": "{% $states.input.Payload.attestationAttempts + 1 %}"
+            },
+            "Next": "GetAttestation"
+        },
+        "PrepareReceiveCall": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+                "FunctionName": "${PrepareReceiveCallFunctionArn}",
+                "Payload": "{% $states.input.Payload %}"
+            },
+            "Next": "StartDestExecution"
+        },
+        "StartDestExecution": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::states:startExecution",
+            "Arguments": {
+                "StateMachineArn": "${GaslessWorkflowStateMachineArn}",
+                "Input": "{% $string({ 'chainKey': $states.input.Payload.destChainKey, 'userKey': 'recipient', 'calls': $states.input.Payload.calls }) %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.Payload.sourceChainKey %}",
+                "destChainKey": "{% $states.input.Payload.destChainKey %}",
+                "bridgeAmount": "{% $states.input.Payload.bridgeAmount %}",
+                "irisFee": "{% $states.input.Payload.irisFee %}",
+                "ownerAddress": "{% $states.input.Payload.ownerAddress %}",
+                "recipientAddress": "{% $states.input.Payload.recipientAddress %}",
+                "sourceTxHash": "{% $states.input.Payload.sourceTxHash %}",
+                "sourceExplorerUrl": "{% $states.input.Payload.sourceExplorerUrl %}",
+                "destExecutionArn": "{% $states.result.ExecutionArn %}"
+            },
+            "Next": "WaitDestExecution"
+        },
+        "WaitDestExecution": {
+            "Type": "Wait",
+            "Seconds": 10,
+            "Next": "PollDestExecution"
+        },
+        "PollDestExecution": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:describeExecution",
+            "Arguments": {
+                "ExecutionArn": "{% $states.input.destExecutionArn %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.sourceChainKey %}",
+                "destChainKey": "{% $states.input.destChainKey %}",
+                "bridgeAmount": "{% $states.input.bridgeAmount %}",
+                "irisFee": "{% $states.input.irisFee %}",
+                "ownerAddress": "{% $states.input.ownerAddress %}",
+                "recipientAddress": "{% $states.input.recipientAddress %}",
+                "sourceTxHash": "{% $states.input.sourceTxHash %}",
+                "sourceExplorerUrl": "{% $states.input.sourceExplorerUrl %}",
+                "destExecutionArn": "{% $states.input.destExecutionArn %}",
+                "destExecutionStatus": "{% $states.result.Status %}"
+            },
+            "Next": "IsDestExecutionDone"
+        },
+        "IsDestExecutionDone": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Condition": "{% $states.input.destExecutionStatus = 'SUCCEEDED' %}",
+                    "Next": "GetDestOutput"
+                },
+                {
+                    "Condition": "{% $states.input.destExecutionStatus = 'FAILED' or $states.input.destExecutionStatus = 'TIMED_OUT' or $states.input.destExecutionStatus = 'ABORTED' %}",
+                    "Next": "DestExecutionFailed"
+                }
+            ],
+            "Default": "WaitDestExecution"
+        },
+        "DestExecutionFailed": {
+            "Type": "Fail",
+            "Error": "DestExecutionFailed",
+            "Cause": "the gasless workflow destination-chain execution did not succeed."
+        },
+        "GetDestOutput": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:describeExecution",
+            "Arguments": {
+                "ExecutionArn": "{% $states.input.destExecutionArn %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.sourceChainKey %}",
+                "destChainKey": "{% $states.input.destChainKey %}",
+                "bridgeAmount": "{% $states.input.bridgeAmount %}",
+                "irisFee": "{% $states.input.irisFee %}",
+                "ownerAddress": "{% $states.input.ownerAddress %}",
+                "recipientAddress": "{% $states.input.recipientAddress %}",
+                "sourceTxHash": "{% $states.input.sourceTxHash %}",
+                "sourceExplorerUrl": "{% $states.input.sourceExplorerUrl %}",
+                "destTxHash": "{% $parse($states.result.Output).Payload.transactionHash %}",
+                "destExplorerUrl": "{% $parse($states.result.Output).Payload.explorerUrl %}"
+            },
+            "Next": "SummarizeResult"
+        },
+        "SummarizeResult": {
+            "Type": "Pass",
+            "Output": {
+                "status": "SUCCEEDED",
+                "sourceChainKey": "{% $states.input.sourceChainKey %}",
+                "destChainKey": "{% $states.input.destChainKey %}",
+                "bridgedAmount": "{% $states.input.bridgeAmount %}",
+                "irisFee": "{% $states.input.irisFee %}",
+                "ownerAddress": "{% $states.input.ownerAddress %}",
+                "recipientAddress": "{% $states.input.recipientAddress %}",
+                "sourceTxHash": "{% $states.input.sourceTxHash %}",
+                "destTxHash": "{% $states.input.destTxHash %}",
+                "sourceExplorerUrl": "{% $states.input.sourceExplorerUrl %}",
+                "destExplorerUrl": "{% $states.input.destExplorerUrl %}"
+            },
+            "Next": "Success"
+        },
+        "Success": {
+            "Type": "Succeed"
+        },
+        "TimeoutFail": {
+            "Type": "Fail",
+            "Error": "AttestationTimeout",
+            "Cause": "CCTP attestation was not ready after 60 attempts (5 minutes). The source transaction may still finalize — check Iris manually."
+        }
+    }
+}

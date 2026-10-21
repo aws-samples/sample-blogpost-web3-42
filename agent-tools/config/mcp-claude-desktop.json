@@ -1,0 +1,18 @@
+{
+    "mcpServers": {
+        "awslabs.stepfunctions-tool-mcp-server": {
+            "command": "uvx",
+            "args": [
+                "awslabs.stepfunctions-tool-mcp-server@0.2.1"
+            ],
+            "timeout": 300,
+            "env": {
+                "AWS_PROFILE": "default",
+                "AWS_REGION": "us-east-1",
+                "STATE_MACHINE_LIST": "GaslessTransferTool-EXAMPLE, CctpBridgeTool-EXAMPLE",
+                "STATE_MACHINE_INPUT_SCHEMA_ARN_TAG_KEY": "inputSchemaArn",
+                "FASTMCP_LOG_LEVEL": "ERROR"
+            }
+        }
+    }
+}

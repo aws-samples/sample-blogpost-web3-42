@@ -1,0 +1,6 @@
+{
+    "_comment": "Bridge intent: 1 USDC from owner on ETH Sepolia → recipient on Base Sepolia. bridgeAmount is in micro-USDC (6 decimals). recipientAddress is optional — if omitted, the recipient's SCA address derived from paymaster-key-recipient is used.",
+    "sourceChainKey": "eth",
+    "destChainKey": "base",
+    "bridgeAmount": "1000000"
+}

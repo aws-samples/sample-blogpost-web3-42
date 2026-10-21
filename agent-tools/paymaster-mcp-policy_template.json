@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StepFunctionsDiscovery",
+      "Effect": "Allow",
+      "Action": [
+        "states:ListStateMachines",
+        "states:DescribeStateMachine",
+        "states:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "StepFunctionsExecution",
+      "Effect": "Allow",
+      "Action": [
+        "states:StartExecution",
+        "states:DescribeExecution"
+      ],
+      "Resource": [
+        "arn:aws:states:<REGION>:<ACCOUNT_ID>:stateMachine:GaslessTransferTool-*",
+        "arn:aws:states:<REGION>:<ACCOUNT_ID>:stateMachine:CctpBridgeTool-*",
+        "arn:aws:states:<REGION>:<ACCOUNT_ID>:execution:GaslessTransferTool-*:*",
+        "arn:aws:states:<REGION>:<ACCOUNT_ID>:execution:CctpBridgeTool-*:*"
+      ]
+    },
+    {
+      "Sid": "EventBridgeSchemas",
+      "Effect": "Allow",
+      "Action": "schemas:DescribeSchema",
+      "Resource": "arn:aws:schemas:<REGION>:<ACCOUNT_ID>:schema/paymaster-schemas/*"
+    }
+  ]
+}

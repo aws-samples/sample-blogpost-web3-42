@@ -1,0 +1,7 @@
+{
+  "name": "get-attestation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lambda function. Dependencies are declared in the package.json one level up."
+}

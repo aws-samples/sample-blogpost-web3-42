@@ -1,0 +1,17 @@
+{
+    "name": "cctp-bridge",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "generate-env": "node local-test/generate-env.mjs"
+    },
+    "dependencies": {
+        "@aws-sdk/client-secrets-manager": "3.1154.0",
+        "dotenv": "18.0.8",
+        "viem": "2.57.7"
+    },
+    "devDependencies": {
+        "esbuild": "0.28.2"
+    },
+    "description": "Gasless crosschain USDC transfers with Circle CCTP and Circle Paymaster"
+}

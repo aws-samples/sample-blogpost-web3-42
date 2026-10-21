@@ -1,0 +1,15 @@
+{
+    "chainKey": "base",
+    "userKey": "recipient",
+    "calls": [
+        {
+            "to": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+            "abi": "[{\"type\":\"function\",\"name\":\"transfer\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"recipient\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"}],\"outputs\":[{\"type\":\"bool\"}]}]",
+            "functionName": "transfer",
+            "args": [
+                "0xda0ae97aC81e9a9a1Ea460802025aA160008943a",
+                "1000000"
+            ]
+        }
+    ]
+}

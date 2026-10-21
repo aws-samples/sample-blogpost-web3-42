@@ -1,0 +1,99 @@
+{
+    "QueryLanguage": "JSONata",
+    "Comment": "GaslessTransferTool: adapter state machine that validates agent input and delegates to the gasless workflow. Uses fire-and-poll to avoid the EventBridge managed-rule IAM requirement of .sync:2. Use this tool to send USDC gaslessly on a SINGLE chain (same source and destination).",
+    "StartAt": "AdaptInput",
+    "States": {
+        "AdaptInput": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+                "FunctionName": "${ValidateAndAdaptTransferFunctionArn}",
+                "Payload": "{% $states.input %}"
+            },
+            "Next": "StartGaslessWorkflow"
+        },
+        "StartGaslessWorkflow": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::states:startExecution",
+            "Arguments": {
+                "StateMachineArn": "${GaslessWorkflowStateMachineArn}",
+                "Input": "{% $string({ 'chainKey': $states.input.Payload.chainKey, 'userKey': 'owner', 'calls': $states.input.Payload.calls }) %}"
+            },
+            "Output": {
+                "chainKey": "{% $states.input.Payload.chainKey %}",
+                "amountUsdc": "{% $states.input.Payload.amountUsdc %}",
+                "recipientAddress": "{% $states.input.Payload.recipientAddress %}",
+                "gaslessExecutionArn": "{% $states.result.ExecutionArn %}"
+            },
+            "Next": "WaitForGaslessWorkflow"
+        },
+        "WaitForGaslessWorkflow": {
+            "Type": "Wait",
+            "Seconds": 10,
+            "Next": "PollGaslessWorkflow"
+        },
+        "PollGaslessWorkflow": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:describeExecution",
+            "Arguments": {
+                "ExecutionArn": "{% $states.input.gaslessExecutionArn %}"
+            },
+            "Output": {
+                "chainKey": "{% $states.input.chainKey %}",
+                "amountUsdc": "{% $states.input.amountUsdc %}",
+                "recipientAddress": "{% $states.input.recipientAddress %}",
+                "gaslessExecutionArn": "{% $states.input.gaslessExecutionArn %}",
+                "gaslessExecutionStatus": "{% $states.result.Status %}"
+            },
+            "Next": "IsGaslessWorkflowDone"
+        },
+        "IsGaslessWorkflowDone": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Condition": "{% $states.input.gaslessExecutionStatus = 'SUCCEEDED' %}",
+                    "Next": "GetGaslessWorkflowOutput"
+                },
+                {
+                    "Condition": "{% $states.input.gaslessExecutionStatus = 'FAILED' or $states.input.gaslessExecutionStatus = 'TIMED_OUT' or $states.input.gaslessExecutionStatus = 'ABORTED' %}",
+                    "Next": "GaslessWorkflowFailed"
+                }
+            ],
+            "Default": "WaitForGaslessWorkflow"
+        },
+        "GaslessWorkflowFailed": {
+            "Type": "Fail",
+            "Error": "GaslessWorkflowExecutionFailed",
+            "Cause": "The gasless workflow execution did not succeed. Check the gasless workflow execution for details."
+        },
+        "GetGaslessWorkflowOutput": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:describeExecution",
+            "Arguments": {
+                "ExecutionArn": "{% $states.input.gaslessExecutionArn %}"
+            },
+            "Output": {
+                "chainKey": "{% $states.input.chainKey %}",
+                "amountUsdc": "{% $states.input.amountUsdc %}",
+                "recipientAddress": "{% $states.input.recipientAddress %}",
+                "gaslessOutput": "{% $states.result.Output %}"
+            },
+            "Next": "BuildResponse"
+        },
+        "BuildResponse": {
+            "Type": "Pass",
+            "Output": {
+                "status": "SUCCEEDED",
+                "amountUsdc": "{% $states.input.amountUsdc %}",
+                "chainKey": "{% $states.input.chainKey %}",
+                "recipientAddress": "{% $states.input.recipientAddress %}",
+                "transactionHash": "{% $parse($states.input.gaslessOutput).Payload.transactionHash %}",
+                "explorerUrl": "{% $parse($states.input.gaslessOutput).Payload.explorerUrl %}"
+            },
+            "Next": "Success"
+        },
+        "Success": {
+            "Type": "Succeed"
+        }
+    }
+}

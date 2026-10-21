@@ -1,0 +1,102 @@
+{
+    "QueryLanguage": "JSONata",
+    "Comment": "CctpBridgeTool: adapter state machine that validates agent input and delegates to the CCTP bridge. Uses fire-and-poll with a 15s wait (longer than the CCTP bridge's own 10s internal waits) to avoid redundant polling. Use this tool to bridge USDC gaslessly across DIFFERENT chains. Usually takes under a minute, and up to 5 minutes while waiting for the Circle attestation.",
+    "StartAt": "AdaptInput",
+    "States": {
+        "AdaptInput": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+                "FunctionName": "${ValidateAndAdaptBridgeFunctionArn}",
+                "Payload": "{% $states.input %}"
+            },
+            "Next": "StartCctpBridge"
+        },
+        "StartCctpBridge": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::states:startExecution",
+            "Arguments": {
+                "StateMachineArn": "${CctpBridgeStateMachineArn}",
+                "Input": "{% $string({ 'sourceChainKey': $states.input.Payload.sourceChainKey, 'destChainKey': $states.input.Payload.destChainKey, 'bridgeAmount': $states.input.Payload.bridgeAmount, 'recipientAddress': $states.input.Payload.recipientAddress }) %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.Payload.sourceChainKey %}",
+                "destChainKey": "{% $states.input.Payload.destChainKey %}",
+                "amountUsdc": "{% $states.input.Payload.amountUsdc %}",
+                "bridgeExecutionArn": "{% $states.result.ExecutionArn %}"
+            },
+            "Next": "WaitForCctpBridge"
+        },
+        "WaitForCctpBridge": {
+            "Type": "Wait",
+            "Seconds": 15,
+            "Next": "PollCctpBridge"
+        },
+        "PollCctpBridge": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:describeExecution",
+            "Arguments": {
+                "ExecutionArn": "{% $states.input.bridgeExecutionArn %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.sourceChainKey %}",
+                "destChainKey": "{% $states.input.destChainKey %}",
+                "amountUsdc": "{% $states.input.amountUsdc %}",
+                "bridgeExecutionArn": "{% $states.input.bridgeExecutionArn %}",
+                "bridgeExecutionStatus": "{% $states.result.Status %}"
+            },
+            "Next": "IsCctpBridgeDone"
+        },
+        "IsCctpBridgeDone": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Condition": "{% $states.input.bridgeExecutionStatus = 'SUCCEEDED' %}",
+                    "Next": "GetCctpBridgeOutput"
+                },
+                {
+                    "Condition": "{% $states.input.bridgeExecutionStatus = 'FAILED' or $states.input.bridgeExecutionStatus = 'TIMED_OUT' or $states.input.bridgeExecutionStatus = 'ABORTED' %}",
+                    "Next": "CctpBridgeFailed"
+                }
+            ],
+            "Default": "WaitForCctpBridge"
+        },
+        "CctpBridgeFailed": {
+            "Type": "Fail",
+            "Error": "CctpBridgeExecutionFailed",
+            "Cause": "The CCTP bridge execution did not succeed. Check the CCTP bridge execution for details (attestation timeout or on-chain failure)."
+        },
+        "GetCctpBridgeOutput": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:sfn:describeExecution",
+            "Arguments": {
+                "ExecutionArn": "{% $states.input.bridgeExecutionArn %}"
+            },
+            "Output": {
+                "sourceChainKey": "{% $states.input.sourceChainKey %}",
+                "destChainKey": "{% $states.input.destChainKey %}",
+                "amountUsdc": "{% $states.input.amountUsdc %}",
+                "bridgeOutput": "{% $states.result.Output %}"
+            },
+            "Next": "BuildResponse"
+        },
+        "BuildResponse": {
+            "Type": "Pass",
+            "Output": {
+                "status": "SUCCEEDED",
+                "amountUsdc": "{% $states.input.amountUsdc %}",
+                "sourceChainKey": "{% $states.input.sourceChainKey %}",
+                "destChainKey": "{% $states.input.destChainKey %}",
+                "recipientAddress": "{% $parse($states.input.bridgeOutput).recipientAddress %}",
+                "sourceTxHash": "{% $parse($states.input.bridgeOutput).sourceTxHash %}",
+                "destTxHash": "{% $parse($states.input.bridgeOutput).destTxHash %}",
+                "sourceExplorerUrl": "{% $parse($states.input.bridgeOutput).sourceExplorerUrl %}",
+                "destExplorerUrl": "{% $parse($states.input.bridgeOutput).destExplorerUrl %}"
+            },
+            "Next": "Success"
+        },
+        "Success": {
+            "Type": "Succeed"
+        }
+    }
+}

@@ -1,0 +1,231 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CCTP Bridge Workflow — gasless cross-chain USDC transfer using Circle CCTP V2 and Paymaster
+
+Parameters:
+  GaslessWorkflowStateMachineArn:
+    Type: String
+    Description: ARN of the deployed gasless workflow state machine. Used as the nested sub-workflow for each on-chain Paymaster transaction.
+
+Resources:
+
+  # ---------------------------------------------------------------------------
+  # IAM: single rule covers paymaster-key-owner AND paymaster-key-recipient
+  # ---------------------------------------------------------------------------
+  SecretsManagerAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:paymaster-key-*'
+
+  # ---------------------------------------------------------------------------
+  # Lambda: ValidateBridgeRequest
+  # ---------------------------------------------------------------------------
+  ValidateBridgeRequestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - !Ref SecretsManagerAccessPolicy
+      Environment:
+        Variables:
+          # Private keys — blank in production; populated via env.json for local testing.
+          # In production, config.mjs falls through to Secrets Manager (paymaster-key-*).
+          OWNER_PRIVATE_KEY: ''
+          RECIPIENT_PRIVATE_KEY: ''
+          # USDC & Paymaster addresses
+          ETH_USDC_ADDRESS: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          ETH_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          BASE_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ARB_USDC_ADDRESS: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+          ARB_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          # CCTP V2 contract addresses
+          ETH_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          ETH_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          BASE_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          BASE_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          ARB_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          ARB_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          IRIS_API_BASE: 'https://iris-api-sandbox.circle.com'
+    Metadata:
+      BuildMethod: makefile
+
+  # ---------------------------------------------------------------------------
+  # Lambda: PrepareBridgeCalls
+  # ---------------------------------------------------------------------------
+  PrepareBridgeCallsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - !Ref SecretsManagerAccessPolicy
+      Environment:
+        Variables:
+          OWNER_PRIVATE_KEY: ''
+          RECIPIENT_PRIVATE_KEY: ''
+          ETH_USDC_ADDRESS: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          ETH_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          BASE_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ARB_USDC_ADDRESS: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+          ARB_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ETH_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          ETH_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          BASE_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          BASE_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          ARB_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          ARB_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          IRIS_API_BASE: 'https://iris-api-sandbox.circle.com'
+    Metadata:
+      BuildMethod: makefile
+
+  # ---------------------------------------------------------------------------
+  # Lambda: GetAttestation
+  # ---------------------------------------------------------------------------
+  GetAttestationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 30
+      MemorySize: 256
+      Policies:
+        - !Ref SecretsManagerAccessPolicy
+      Environment:
+        Variables:
+          OWNER_PRIVATE_KEY: ''
+          RECIPIENT_PRIVATE_KEY: ''
+          ETH_USDC_ADDRESS: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          ETH_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          BASE_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ARB_USDC_ADDRESS: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+          ARB_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ETH_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          ETH_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          BASE_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          BASE_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          ARB_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          ARB_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          IRIS_API_BASE: 'https://iris-api-sandbox.circle.com'
+    Metadata:
+      BuildMethod: makefile
+
+  # ---------------------------------------------------------------------------
+  # Lambda: PrepareReceiveCall
+  # ---------------------------------------------------------------------------
+  PrepareReceiveCallFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 30
+      MemorySize: 256
+      Policies:
+        - !Ref SecretsManagerAccessPolicy
+      Environment:
+        Variables:
+          OWNER_PRIVATE_KEY: ''
+          RECIPIENT_PRIVATE_KEY: ''
+          ETH_USDC_ADDRESS: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          ETH_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          BASE_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ARB_USDC_ADDRESS: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+          ARB_PAYMASTER_ADDRESS: '0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966'
+          ETH_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          ETH_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          BASE_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          BASE_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          ARB_TOKEN_MESSENGER_ADDRESS: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          ARB_MESSAGE_TRANSMITTER_ADDRESS: '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275'
+          IRIS_API_BASE: 'https://iris-api-sandbox.circle.com'
+    Metadata:
+      BuildMethod: makefile
+
+  # ---------------------------------------------------------------------------
+  # IAM: Explicit execution role for the CCTP bridge state machine.
+  # All permissions inlined directly — avoids any ManagedPolicy attachment
+  # resolution issues with CloudFormation parameters.
+  # ---------------------------------------------------------------------------
+  CctpBridgeStateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InlinePolicies
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Invoke the CCTP bridge Lambda functions
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !GetAtt ValidateBridgeRequestFunction.Arn
+                  - !GetAtt PrepareBridgeCallsFunction.Arn
+                  - !GetAtt GetAttestationFunction.Arn
+                  - !GetAtt PrepareReceiveCallFunction.Arn
+              # Start the gasless workflow nested execution (resource = state machine ARN)
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref GaslessWorkflowStateMachineArn
+              # Poll the gasless workflow nested execution (resource = execution ARN wildcard)
+              - Effect: Allow
+                Action: states:DescribeExecution
+                Resource: !Sub
+                  - 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${StateMachineName}:*'
+                  - StateMachineName: !Select [6, !Split [':', !Ref GaslessWorkflowStateMachineArn]]
+
+  # ---------------------------------------------------------------------------
+  # Step Functions: CCTP Bridge State Machine (Standard, the same type as the gasless workflow)
+  # ---------------------------------------------------------------------------
+  CctpBridgeStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/definition.asl.json
+      DefinitionSubstitutions:
+        ValidateBridgeRequestFunctionArn: !GetAtt ValidateBridgeRequestFunction.Arn
+        PrepareBridgeCallsFunctionArn:    !GetAtt PrepareBridgeCallsFunction.Arn
+        GetAttestationFunctionArn:        !GetAtt GetAttestationFunction.Arn
+        PrepareReceiveCallFunctionArn:    !GetAtt PrepareReceiveCallFunction.Arn
+        GaslessWorkflowStateMachineArn:             !Ref GaslessWorkflowStateMachineArn
+      Role: !GetAtt CctpBridgeStateMachineRole.Arn
+
+Outputs:
+  CctpBridgeStateMachineArn:
+    Description: "CCTP Bridge State Machine ARN"
+    Value: !Ref CctpBridgeStateMachine
+  ValidateBridgeRequestFunctionArn:
+    Description: "ValidateBridgeRequest Lambda ARN"
+    Value: !GetAtt ValidateBridgeRequestFunction.Arn
+  PrepareBridgeCallsFunctionArn:
+    Description: "PrepareBridgeCalls Lambda ARN"
+    Value: !GetAtt PrepareBridgeCallsFunction.Arn
+  GetAttestationFunctionArn:
+    Description: "GetAttestation Lambda ARN"
+    Value: !GetAtt GetAttestationFunction.Arn
+  PrepareReceiveCallFunctionArn:
+    Description: "PrepareReceiveCall Lambda ARN"
+    Value: !GetAtt PrepareReceiveCallFunction.Arn

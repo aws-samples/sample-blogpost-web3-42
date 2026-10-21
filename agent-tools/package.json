@@ -1,0 +1,9 @@
+{
+    "name": "agent-tools",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Adapter layer exposing the gasless workflow and the CCTP bridge as MCP tools",
+    "devDependencies": {
+        "esbuild": "0.28.2"
+    }
+}

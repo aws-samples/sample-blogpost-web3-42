@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Adapter layer that exposes the gasless workflow and the CCTP bridge
+  as MCP tools via the awslabs.stepfunctions-tool-mcp-server.
+
+Parameters:
+  GaslessWorkflowStateMachineArn:
+    Type: String
+    Description: ARN of the deployed gasless workflow state machine
+  CctpBridgeStateMachineArn:
+    Type: String
+    Description: ARN of the deployed CCTP bridge state machine
+
+Resources:
+
+  # ---------------------------------------------------------------------------
+  # Lambda: ValidateAndAdaptTransferFunction
+  # Validates agent input and builds the gasless workflow `calls` payload for a
+  # same-chain gasless USDC transfer.
+  # ---------------------------------------------------------------------------
+  ValidateAndAdaptTransferFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          MAX_TRANSFER_USDC: '100'
+          ETH_USDC_ADDRESS:  '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+          BASE_USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+          ARB_USDC_ADDRESS:  '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
+    Metadata:
+      BuildMethod: makefile
+
+  # ---------------------------------------------------------------------------
+  # Lambda: ValidateAndAdaptBridgeFunction
+  # Validates agent input and builds the CCTP bridge payload for a
+  # cross-chain USDC bridge via Circle CCTP V2.
+  # ---------------------------------------------------------------------------
+  ValidateAndAdaptBridgeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: index.handler
+      Runtime: nodejs24.x
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          MAX_BRIDGE_USDC: '100'
+    Metadata:
+      BuildMethod: makefile
+
+  # ---------------------------------------------------------------------------
+  # IAM: Explicit execution role for the GaslessTransferTool state machine.
+  # All permissions inlined directly — avoids ManagedPolicy attachment
+  # resolution issues with CloudFormation parameters (same pattern as the CCTP bridge).
+  # ---------------------------------------------------------------------------
+  GaslessTransferToolRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InlinePolicies
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Invoke the adapter Lambda
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt ValidateAndAdaptTransferFunction.Arn
+              # Start the gasless workflow execution (resource = state machine ARN)
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref GaslessWorkflowStateMachineArn
+              # Poll the gasless workflow execution (resource = execution ARN wildcard)
+              - Effect: Allow
+                Action: states:DescribeExecution
+                Resource: !Sub
+                  - 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${StateMachineName}:*'
+                  - StateMachineName: !Select [6, !Split [':', !Ref GaslessWorkflowStateMachineArn]]
+
+  # ---------------------------------------------------------------------------
+  # IAM: Explicit execution role for the CctpBridgeTool state machine.
+  # ---------------------------------------------------------------------------
+  CctpBridgeToolRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InlinePolicies
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Invoke the adapter Lambda
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt ValidateAndAdaptBridgeFunction.Arn
+              # Start the CCTP bridge execution (resource = state machine ARN)
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref CctpBridgeStateMachineArn
+              # Poll the CCTP bridge execution (resource = execution ARN wildcard)
+              - Effect: Allow
+                Action: states:DescribeExecution
+                Resource: !Sub
+                  - 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${StateMachineName}:*'
+                  - StateMachineName: !Select [6, !Split [':', !Ref CctpBridgeStateMachineArn]]
+
+  # ---------------------------------------------------------------------------
+  # Step Functions: GaslessTransferTool State Machine (Standard workflow)
+  # Exposes same-chain gasless USDC transfers as an MCP tool.
+  # Logical ID kept short so the auto-generated name (GaslessTransferTool-XXXX)
+  # stays within MCP client tool-name length limits.
+  # ---------------------------------------------------------------------------
+  GaslessTransferTool:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/gasless-transfer-tool.asl.json
+      DefinitionSubstitutions:
+        ValidateAndAdaptTransferFunctionArn: !GetAtt ValidateAndAdaptTransferFunction.Arn
+        GaslessWorkflowStateMachineArn: !Ref GaslessWorkflowStateMachineArn
+      Role: !GetAtt GaslessTransferToolRole.Arn
+      Tags:
+        inputSchemaArn: !Sub 'arn:aws:schemas:${AWS::Region}:${AWS::AccountId}:schema/paymaster-schemas/GaslessTransferToolInput'
+
+  # ---------------------------------------------------------------------------
+  # Step Functions: CctpBridgeTool State Machine (Standard workflow)
+  # Exposes cross-chain gasless USDC bridging as an MCP tool.
+  # Standard (not Express) — CctpBridge can run >5 min for attestation.
+  # Logical ID kept short so the auto-generated name (CctpBridgeTool-XXXX)
+  # stays within MCP client tool-name length limits.
+  # ---------------------------------------------------------------------------
+  CctpBridgeTool:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/cctp-bridge-tool.asl.json
+      DefinitionSubstitutions:
+        ValidateAndAdaptBridgeFunctionArn: !GetAtt ValidateAndAdaptBridgeFunction.Arn
+        CctpBridgeStateMachineArn: !Ref CctpBridgeStateMachineArn
+      Role: !GetAtt CctpBridgeToolRole.Arn
+      Tags:
+        inputSchemaArn: !Sub 'arn:aws:schemas:${AWS::Region}:${AWS::AccountId}:schema/paymaster-schemas/CctpBridgeToolInput'
+
+Outputs:
+  GaslessTransferToolStateMachineArn:
+    Description: "GaslessTransferTool State Machine ARN (use this in STATE_MACHINE_LIST)"
+    Value: !Ref GaslessTransferTool
+  GaslessTransferToolStateMachineName:
+    Description: "GaslessTransferTool State Machine Name"
+    Value: !GetAtt GaslessTransferTool.Name
+  CctpBridgeToolStateMachineArn:
+    Description: "CctpBridgeTool State Machine ARN (use this in STATE_MACHINE_LIST)"
+    Value: !Ref CctpBridgeTool
+  CctpBridgeToolStateMachineName:
+    Description: "CctpBridgeTool State Machine Name"
+    Value: !GetAtt CctpBridgeTool.Name
+  ValidateAndAdaptTransferFunctionArn:
+    Description: "ValidateAndAdaptTransfer Lambda ARN"
+    Value: !GetAtt ValidateAndAdaptTransferFunction.Arn
+  ValidateAndAdaptBridgeFunctionArn:
+    Description: "ValidateAndAdaptBridge Lambda ARN"
+    Value: !GetAtt ValidateAndAdaptBridgeFunction.Arn
