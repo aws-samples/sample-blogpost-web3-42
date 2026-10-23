@@ -71,11 +71,16 @@ CloudShell in the Region you want, then check it:
 aws configure list | grep region
 ```
 
-If it is empty or wrong, set it with `aws configure set region <region>`. Do not
-also set the `AWS_REGION` or `AWS_DEFAULT_REGION` environment variable to a
-different Region. The AWS CLI would then deploy to that Region, while `deploy.sh`
-writes the Region from the configuration file into the IAM policy and the MCP
-configuration, and the agent cannot reach your tools.
+If it is empty or wrong, set it with `aws configure set region <region>`. You can
+also pick the Region for a single run with the `AWS_REGION` or `AWS_DEFAULT_REGION`
+environment variable, which takes precedence over the configuration file:
+
+```bash
+AWS_REGION=ap-southeast-2 ./deploy.sh
+```
+
+`deploy.sh` prints the Region it uses on the `Checking prerequisites` step, and
+uses that same Region for the stacks, the IAM policy and the MCP configuration.
 
 The IAM user `paymaster-mcp-user` and its policy are global, so they exist once
 per account. Deploy into one Region at a time: a second deployment in another

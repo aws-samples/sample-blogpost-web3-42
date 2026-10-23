@@ -4,8 +4,9 @@
 # Writes the AWS Region, the AWS profile and the state machine names into the MCP
 # client configuration (agent-tools/config/mcp-claude-desktop.json).
 #
-#   AWS_REGION         taken from the AWS CLI configuration (`aws configure get region`),
-#                      so it matches the Region your stacks are deployed in.
+#   AWS_REGION         taken from $AWS_REGION, or else from the Region the AWS CLI resolves
+#                      (AWS_DEFAULT_REGION or the profile), so it matches the Region your
+#                      stacks are deployed in.
 #   STATE_MACHINE_LIST built from $TRANSFER_SM_NAME and $BRIDGE_SM_NAME, the names of
 #                      the two tool state machines (stack outputs of paymaster-agent-tools).
 #   AWS_PROFILE        set to $MCP_AWS_PROFILE when given. ./deploy.sh uses it to point the
@@ -35,10 +36,12 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
   exit 1
 fi
 
-REGION="$(aws configure get region || true)"
+# AWS_REGION first, then whatever the AWS CLI resolves (AWS_DEFAULT_REGION or the profile).
+# `aws configure get region` is not used: it reads only ~/.aws/config, not the environment.
+REGION="${AWS_REGION:-$(aws configure list 2>/dev/null | awk '$1=="region" && $3!="<not" {print $3}' || true)}"
 if [[ -z "${REGION:-}" ]]; then
-  echo "ERROR: Could not determine the Region via 'aws configure get region'." >&2
-  echo "       Set a default Region, or run this script from AWS CloudShell." >&2
+  echo "ERROR: Could not determine the Region." >&2
+  echo "       Run 'aws configure set region <region>' or 'export AWS_REGION=<region>'." >&2
   exit 1
 fi
 

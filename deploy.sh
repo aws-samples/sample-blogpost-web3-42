@@ -88,8 +88,13 @@ check_prereqs() {
     || die "AWS credentials are not configured. Run 'aws configure', or use AWS CloudShell."
 
   ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-  REGION="$(aws configure get region || true)"
-  [[ -n "$REGION" ]] || die "No default Region set. Run 'aws configure set region us-east-1'."
+  # `aws configure list` reports the Region the AWS CLI will really use: the
+  # AWS_REGION or AWS_DEFAULT_REGION variable first, then the profile. By contrast,
+  # `aws configure get region` reads only ~/.aws/config, which is empty on CloudShell.
+  REGION="$(aws configure list 2>/dev/null | awk '$1=="region" && $3!="<not" {print $3}' || true)"
+  [[ -n "$REGION" ]] || die "No Region set. Run 'aws configure set region <region>' or 'export AWS_REGION=<region>'."
+  # Pin it, so aws, sam and the helper scripts all use the Region reported here.
+  export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
   ok "Account $ACCOUNT_ID, Region $REGION"
 }
 
