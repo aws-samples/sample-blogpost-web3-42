@@ -509,7 +509,8 @@ phase_mcp() {
       Windows  %APPDATA%\\Claude\\claude_desktop_config.json
 
   ${BOLD}Amazon Quick Desktop${OFF}
-    Settings, then Capabilities, then MCP, then Add MCP, then Import the file.
+    Customize, then Connectors, then Create / Local Connector. Paste the content of
+    mcp-claude-desktop.json as the JSON definition.
 
   Running from AWS CloudShell? Print both files and copy them to your laptop:
     cat agent-tools/config/${MCP_PROFILE}.credentials agent-tools/config/mcp-claude-desktop.json

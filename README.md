@@ -158,9 +158,10 @@ that section instead of appending a second one.
   reopen it.
   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Amazon Quick Desktop.** Go to **Settings**, then **Capabilities**, then
-  **MCP**, then **+ Add MCP**, then **Import**, and select
-  `mcp-claude-desktop.json`. No restart is needed.
+- **Amazon Quick Desktop.** Go to **Customize**, then **Connectors**, then choose
+  **Create** and **Local Connector**. Paste the content of
+  `mcp-claude-desktop.json` directly as the JSON definition. No restart is
+  needed.
 
 **5. Try it.** The server `awslabs.stepfunctions-tool-mcp-server` should now be
 connected with two tools. Ask your agent, with your own recipient address:
@@ -408,10 +409,9 @@ and the output contains both transaction hashes. The state machine allows up to
 
 ### From an AI agent
 
-In Claude Desktop, choose **Customize**, then **Connectors**, and confirm
-`awslabs.stepfunctions-tool-mcp-server` is connected with two tools. In Amazon
-Quick Desktop, the server is listed under **Settings**, then **Capabilities**,
-then **MCP**.
+In Claude Desktop or Amazon Quick Desktop, choose **Customize**, then
+**Connectors**, and confirm `awslabs.stepfunctions-tool-mcp-server` is connected
+with two tools.
 
 Then ask for a transfer in plain language, replacing the address with your own
 `RECIPIENT_ADDRESS`:

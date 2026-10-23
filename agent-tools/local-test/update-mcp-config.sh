@@ -70,5 +70,6 @@ rm -f "$TMP"
 echo "Updated: $CONFIG_FILE"
 echo
 echo "To use it with Amazon Quick Desktop:"
-echo "  Settings, then Capabilities, then MCP, then Add MCP, then Import"
+echo "  Customize, then Connectors, then Create / Local Connector."
+echo "  Paste the content of this file as the JSON definition."
 echo "  Config file: $(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
