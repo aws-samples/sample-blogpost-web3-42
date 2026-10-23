@@ -134,11 +134,13 @@ your laptop, they are already there. If you deployed from AWS CloudShell, print
 both and copy them to your laptop:
 
 ```bash
-cat agent-tools/config/paymaster-mcp.credentials agent-tools/config/mcp-claude-desktop.json
+cat agent-tools/config/paymaster-mcp.credentials
+cat agent-tools/config/mcp-claude-desktop.json
 ```
 
 **2. Install `uv` and Python 3.12** on that machine. The MCP server runs through
-`uvx`:
+`uvx`. The following command is only an example for macOS with Homebrew; on other
+systems, follow the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```bash
 brew install uv && uv python install 3.12
