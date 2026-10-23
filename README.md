@@ -33,7 +33,7 @@ ordering, and the ARN plumbing between the stacks, for you.
 
 - [Prerequisites](#prerequisites)
 - [Quick start](#quick-start)
-- [Manual deployment](#manual-deployment)
+- [Manual deployment (optional)](#manual-deployment-optional)
 - [Using the workflows](#using-the-workflows)
 - [Configuration reference](#configuration-reference)
 - [How it works](#how-it-works)
@@ -89,21 +89,95 @@ in either Region deletes them.
 
 ## Quick start
 
+**`deploy.sh` is all you need.** One command deploys everything, and you do not
+have to follow any of the steps in [Manual deployment](#manual-deployment-optional),
+which exists only to explain what the script automates.
+
 ```bash
 git clone https://github.com/aws-samples/sample-blogpost-web3-42.git
 cd sample-blogpost-web3-42
 ./deploy.sh
 ```
 
-`deploy.sh` generates two throwaway wallet keys, stores them in AWS Secrets
-Manager, builds and deploys all three stacks, registers the tool schemas, and
-creates a least-privilege IAM user for the MCP server. It pauses for the two
-steps that cannot be automated: funding the wallets in a browser, and installing
-the MCP configuration on the machine that runs your desktop agent. The whole run
-takes about 8 minutes, most of it spent building and deploying the stacks.
+The whole run takes about 8 minutes, most of it spent building and deploying the
+stacks. In order, `deploy.sh`:
 
-Individual phases can be run on their own, and every phase is idempotent, so it
-is safe to re-run after fixing a problem:
+1. Generates two throwaway wallet keys and writes them to `.env`.
+2. **Pauses so you can fund the wallets** at the Circle faucet (see below), unless
+   the owner wallet already holds enough USDC.
+3. Stores the keys in AWS Secrets Manager, then builds and deploys the three
+   stacks in the right order and registers the tool schemas.
+4. Creates a least-privilege IAM user for the MCP server.
+5. Generates the MCP client configuration.
+
+Two steps cannot be automated, so the script stops for them:
+
+- **Funding the wallets.** The script prints the two addresses. Open the
+  [Circle faucet](https://faucet.circle.com), request 20 USDC on Ethereum Sepolia
+  for the owner address and 20 USDC on Base Sepolia for the recipient address,
+  then press Enter.
+- **Configuring your MCP client.** This happens on the machine that runs your
+  desktop agent, so it comes after the script finishes. See the next section.
+
+### Configure your MCP client
+
+When `deploy.sh` finishes, `agent-tools/config/` holds the two files your agent
+needs:
+
+| File | Content |
+|---|---|
+| `paymaster-mcp.credentials` | The AWS profile `paymaster-mcp`, with the access key of the least-privilege IAM user. Keep it private. |
+| `mcp-claude-desktop.json` | The MCP server configuration, with your Region, the two tool names, and `AWS_PROFILE` set to `paymaster-mcp`. |
+
+**1. Get the files onto the machine that runs your agent.** If you deployed from
+your laptop, they are already there. If you deployed from AWS CloudShell, print
+both and copy them to your laptop:
+
+```bash
+cat agent-tools/config/paymaster-mcp.credentials agent-tools/config/mcp-claude-desktop.json
+```
+
+**2. Install `uv` and Python 3.12** on that machine. The MCP server runs through
+`uvx`:
+
+```bash
+brew install uv && uv python install 3.12
+```
+
+**3. Add the AWS profile.** Append the contents of `paymaster-mcp.credentials` to
+`~/.aws/credentials`, and create the file if it does not exist. If the file
+already contains a `[paymaster-mcp]` section from an earlier deployment, replace
+that section instead of appending a second one.
+
+**4. Add the MCP server to your agent.**
+
+- **Claude Desktop.** Merge the `mcpServers` block of `mcp-claude-desktop.json`
+  into your configuration file, then fully quit the app with **Cmd+Q** and
+  reopen it.
+  - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+  - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Amazon Quick Desktop.** Go to **Settings**, then **Capabilities**, then
+  **MCP**, then **+ Add MCP**, then **Import**, and select
+  `mcp-claude-desktop.json`. No restart is needed.
+
+**5. Try it.** The server `awslabs.stepfunctions-tool-mcp-server` should now be
+connected with two tools. Ask your agent, with your own recipient address:
+
+> Send 1 USDC to `0xYOUR_RECIPIENT_ADDRESS` on Ethereum Sepolia.
+
+The agent asks you to confirm, and a transfer takes about 20 seconds. See
+[From an AI agent](#from-an-ai-agent) for more prompts, and
+[Agent and MCP](#agent-and-mcp) if the tools do not appear.
+
+### Running it again
+
+`deploy.sh` is idempotent, so you can run it again at any time: after a failure,
+after changing the code, or to refresh the MCP configuration. It reuses your
+existing keys, updates the stacks in place, and skips anything that is already
+up to date. It never rotates the MCP access key while the key stored in
+`agent-tools/config/paymaster-mcp.credentials` is still valid.
+
+Individual phases can also be run on their own:
 
 ```bash
 ./deploy.sh keys      # Generate wallet keys and write .env
@@ -115,11 +189,12 @@ is safe to re-run after fixing a problem:
 ./deploy.sh destroy   # Delete every AWS resource this script created
 ```
 
-## Manual deployment
+## Manual deployment (optional)
 
-Use this section if you prefer to run each step yourself, or if you want to
-understand what `deploy.sh` automates. All commands are run from the repository
-root.
+**You do not need this section.** `./deploy.sh` in the [Quick start](#quick-start)
+already does everything below. Read on only if you want to understand what the
+script automates, or if you prefer to run each step yourself. All commands are
+run from the repository root.
 
 ### Step 1: Generate and fund wallets
 
@@ -276,26 +351,8 @@ profiles. Where your client supports it, prefer
 short-lived credentials. `./deploy.sh destroy` deletes the user, its key, and the
 policy.
 
-Now install both files on the machine that runs your agent. If you deployed from
-AWS CloudShell, print them and copy them to your laptop:
-
-```bash
-cat agent-tools/config/paymaster-mcp.credentials agent-tools/config/mcp-claude-desktop.json
-```
-
-1. Append the profile to `~/.aws/credentials` on your laptop. Create the file
-   if it does not exist.
-2. Install the MCP configuration:
-
-   **Claude Desktop.** Merge the `mcpServers` block into your configuration file,
-   then fully quit the app with **Cmd+Q** and reopen it:
-
-   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-   **Amazon Quick Desktop.** Go to **Settings**, then **Capabilities**, then
-   **MCP**, then **+ Add MCP**, then **Import**, and select the generated file.
-   No restart is needed.
+Then install both files on the machine that runs your agent, as described in
+[Configure your MCP client](#configure-your-mcp-client).
 
 To generate the configuration by hand instead of through `deploy.sh mcp`, export
 `TRANSFER_SM_NAME` and `BRIDGE_SM_NAME` from the stack outputs of

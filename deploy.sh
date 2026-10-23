@@ -12,6 +12,8 @@
 #                        EventBridge schemas, that expose (1) and (2) to an AI
 #                        agent over MCP.
 #
+# Every phase is idempotent: after a failure or a change, simply run it again.
+#
 # Usage:
 #   ./deploy.sh              Run every phase in order (recommended)
 #   ./deploy.sh keys         Generate wallet keys and write .env
@@ -167,6 +169,15 @@ phase_keys() {
   if [[ -f "$ENV_FILE" ]]; then
     ok ".env already exists, keeping the existing keys"
     info "Delete $ENV_FILE first if you want a fresh pair"
+    # The stacks read the .env in their own directory: restore a copy that went missing.
+    local dir
+    for dir in "$GASLESS_DIR" "$BRIDGE_DIR"; do
+      if [[ ! -f "$dir/.env" ]]; then
+        cp "$ENV_FILE" "$dir/.env"
+        chmod 600 "$dir/.env"
+        info "Restored the missing .env in $(basename "$dir")/"
+      fi
+    done
     return
   fi
 
@@ -364,10 +375,18 @@ upsert_schema() {
 
   if aws schemas describe-schema --registry-name "$SCHEMA_REGISTRY" \
        --schema-name "$name" >/dev/null 2>&1; then
-    aws schemas update-schema \
-      --registry-name "$SCHEMA_REGISTRY" --schema-name "$name" \
-      --type JSONSchemaDraft4 --content "file://$file" >/dev/null
-    ok "Updated schema $name"
+    # update-schema fails with a ConflictException when the content is identical to the
+    # current version, which is the normal case on a re-run. That is not an error here.
+    local err
+    if err="$(aws schemas update-schema \
+        --registry-name "$SCHEMA_REGISTRY" --schema-name "$name" \
+        --type JSONSchemaDraft4 --content "file://$file" 2>&1 >/dev/null)"; then
+      ok "Updated schema $name"
+    elif [[ "$err" == *"No change since the previous schema version"* ]]; then
+      ok "Schema $name is already up to date"
+    else
+      die "Could not update schema $name: $err"
+    fi
   else
     aws schemas create-schema \
       --registry-name "$SCHEMA_REGISTRY" --schema-name "$name" \
